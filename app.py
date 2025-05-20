@@ -14,6 +14,12 @@ Invoke-RestMethod -Uri "http://localhost:5000/update_actual/my_custom_id" -Metho
 
 '''
 
+'''
+python -m venv .venv
+.\.venv\Scripts\activate
+python app.py
+'''
+
 
 # Import necessary libraries
 import os
@@ -59,8 +65,31 @@ DB.create_tables([PredictionPrice], safe=True)
 # Load Required Artifacts
 # ============================
 
-# Load registry of models per competitor (includes model, columns, dtypes, features)
-models_registry = joblib.load("models_registry.pkl")
+# Dicionários para armazenar os modelos e dados carregados
+loaded_models = {}
+loaded_features_data = {}
+
+# Carrega todos os modelos e dados de features disponíveis
+def load_all_competitor_data():
+    competitors = ['competitorA', 'competitorA']
+    
+    for comp in competitors:
+        try:
+            # Carrega o modelo
+            model = joblib.load(f"model_{comp}.pkl")
+            
+            # Carrega os dados de features
+            features_data = joblib.load(f"features_data_{comp}.pkl")
+
+            # Armazena nos dicionários
+            loaded_models[comp] = model
+            loaded_features_data[comp] = features_data
+
+        except Exception as e:
+            print(f"Erro ao carregar dados para {comp}: {str(e)}")
+
+# Carrega os dados na inicialização
+load_all_competitor_data()
 
 # Load cleaned datasets
 sales_df_clean = pd.read_parquet("sales_df_clean.parquet")
@@ -125,35 +154,31 @@ def predict():
         date_str = obs.get("date")
         competitor = obs.get("competitor")
 
-        # Validate required fields
         if not all([sku, date_str, competitor]):
             return jsonify({
                 "observation_id": observation_id,
                 "error": "'sku', 'date', and 'competitor' are required fields."
             }), 400
 
-        # Validate competitor existence in model registry
-        if competitor not in models_registry:
+        if competitor not in loaded_models:
             return jsonify({
                 "observation_id": observation_id,
-                "error": f"Competitor '{competitor}' not found in model registry."
+                "error": f"Competitor '{competitor}' not found in loaded models."
             }), 400
 
-        # Extract metadata
-        columns = models_registry[competitor]["columns"]
-        dtypes = models_registry[competitor]["dtypes"]
-        features = models_registry[competitor]["features"]
+        # Obtém dados do competitor específico
+        features_data = loaded_features_data[competitor]
+        columns = features_data["columns"]
+        features = features_data["features"]
+        model = loaded_models[competitor]
         date = pd.to_datetime(date_str)
-        model = models_registry[competitor]["model"]
 
-        # Call feature preparation and prediction function
         predicted_price = preparar_features_para_predicao(
             sku, date, competitor,
             sales_df_clean, prices_df_clean, campaigns_df_clean,
             features, model
         )
 
-        # Save prediction in the database
         try:
             prediction = PredictionPrice(
                 observation_id=observation_id,
@@ -161,8 +186,7 @@ def predict():
                 date=date.strftime("%Y-%m-%d"),
                 competitor=competitor,
                 observation=json.dumps(obs),
-                predicted_price=float(predicted_price)
-            )
+                predicted_price=float(predicted_price))
             prediction.save()
         except IntegrityError:
             DB.rollback()
@@ -171,7 +195,6 @@ def predict():
                 "error": f"ERROR: Observation ID '{observation_id}' already exists"
             }), 400
 
-        # Return prediction
         return jsonify({
             "observation_id": observation_id,
             "competitor": competitor,
