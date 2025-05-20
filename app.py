@@ -1,26 +1,3 @@
-'''
-# Example 1: Sending a prediction request without providing an observation_id (it will be generated automatically)
-Invoke-RestMethod -Uri "http://localhost:5000/predict" -Method Post -Body '{"data": {"sku": "4443", "date": "2025-05-20", "competitor": "competitorA"}}' -ContentType "application/json"
-
-# Example 2: Sending a prediction request with a custom observation_id
-# Note: If the ID already exists, an error will be returned
-Invoke-RestMethod -Uri "http://localhost:5000/predict" -Method Post -Body '{"observation_id": "my_custom_id", "data": {"sku": "4443", "date": "2025-05-20", "competitor": "competitorA"}}' -ContentType "application/json"
-
-# Example 3: Retrieving all stored predictions
-Invoke-RestMethod -Uri "http://localhost:5000/predictions" -Method Get
-
-# Example 4: Updating the actual price after a prediction is made
-Invoke-RestMethod -Uri "http://localhost:5000/update_actual/my_custom_id" -Method Post -Body '{"actual_price": 125.50}' -ContentType "application/json"
-
-'''
-
-'''
-python -m venv .venv
-.\.venv\Scripts\activate
-python app.py
-'''
-
-
 # Import necessary libraries
 import os
 import json
