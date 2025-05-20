@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pandas
+lightgbm
+joblib
+numpy
+scikit-learn
+python-multipart
+flask
+pyarrow
+peewee
