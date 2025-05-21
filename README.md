@@ -73,7 +73,7 @@ Invoke-RestMethod -Uri "http://localhost:5000/predictions" -Method Get
 - **Algorithm**: Gradient Boosting (LightGBM/XGBoost)
 - **Features**:
   - Historical prices and discounts
-  - Competitor price lags
+  - ~~Competitor price lags~~
   - Calendar features (day-of-week, month)
   - Promotional indicators
 - **Evaluation**: Category-weighted MAE with <10% variance constraint
