@@ -84,7 +84,11 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return jsonify({"message": "Price prediction API is running!"})
+    loaded = list(loaded_models.keys())  # lista dos competidores com modelos carregados
+    return jsonify({
+        "message": "Price prediction API is running!",
+        "loaded_models": loaded
+    })
 
 # =================
 # Prediction Endpoint
