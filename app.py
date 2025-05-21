@@ -13,6 +13,7 @@ from peewee import (
     FloatField, TextField, IntegrityError, CharField, DateTimeField
 )
 from playhouse.shortcuts import model_to_dict
+from playhouse.db_url import connect
 import datetime
 
 # ============================
@@ -37,6 +38,7 @@ class PredictionPrice(Model):
 
 # Create the table if it doesn't exist
 DB.create_tables([PredictionPrice], safe=True)
+DB = connect(os.environ.get('DATABASE_URL') or 'sqlite:///predictions.db')
 
 # ============================
 # Load Required Artifacts
