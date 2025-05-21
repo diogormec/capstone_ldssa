@@ -1,4 +1,10 @@
--r requirements.txt
+flask
+pandas
+scikit-learn
+joblib
+peewee
+pyarrow
+gunicorn
 pytest
 pytest-cov
 flake8
