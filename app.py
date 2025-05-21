@@ -55,10 +55,10 @@ def load_all_competitor_data():
     for comp in competitors:
         try:
             # Carrega o modelo
-            model = joblib.load(f"model_{comp}.pkl")
+            model = joblib.load(f"models/model_{comp}.pkl")
             
             # Carrega os dados de features
-            features_data = joblib.load(f"features_data_{comp}.pkl")
+            features_data = joblib.load(f"models/features_data_{comp}.pkl")
 
             # Armazena nos dicionários
             loaded_models[comp] = model
