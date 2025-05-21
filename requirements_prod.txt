@@ -1,7 +1,7 @@
-flask
-pandas
-scikit-learn
-joblib
-peewee
-pyarrow
-gunicorn
+flask==2.3.2
+pandas==2.0.3
+scikit-learn==1.3.0
+joblib==1.3.2
+peewee==3.17.0
+pyarrow>=12.0.0,<13.0.0  # Versão mais flexível
+gunicorn==20.1.0
