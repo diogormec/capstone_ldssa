@@ -48,7 +48,7 @@ loaded_features_data = {}
 
 # Carrega todos os modelos e dados de features disponíveis
 def load_all_competitor_data():
-    competitors = ['competitorA', 'competitorA']
+    competitors = ['competitorA', 'competitorB']
     
     for comp in competitors:
         try:
