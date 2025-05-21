@@ -68,6 +68,8 @@ def load_all_competitor_data():
 # Carrega os dados na inicialização
 load_all_competitor_data()
 
+print("Model loaded:", list(loaded_models.keys()))
+
 # Load cleaned datasets
 sales_df_clean = pd.read_parquet("sales_df_clean.parquet")
 prices_df_clean = pd.read_parquet("prices_df_clean.parquet")
