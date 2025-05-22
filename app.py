@@ -2,264 +2,221 @@
 import os
 import json
 import joblib
-import pickle
 import pandas as pd
+import datetime
 from flask import Flask, request, jsonify
-from prepare_features import prepare_features_for_prediction  # Custom feature preparation function
+
+# Import custom feature preparation function
+from prepare_features import prepare_features_for_prediction
 
 # Database dependencies
 from peewee import (
-    SqliteDatabase, PostgresqlDatabase, Model, IntegerField,
-    FloatField, TextField, IntegrityError, CharField, DateTimeField
+    Model, IntegerField, FloatField, TextField,
+    CharField, IntegrityError
 )
-from playhouse.shortcuts import model_to_dict
 from playhouse.db_url import connect
-import datetime
+from playhouse.shortcuts import model_to_dict
 
 # ============================
 # Database Configuration
 # ============================
 
-# Use SQLite for local development
-#DB = SqliteDatabase('predictions.db')
-
-# Use Railway's database if available, otherwise fallback to local SQLite
+# Connect to PostgreSQL (Railway) or fallback to SQLite locally
 DB = connect(os.environ.get('DATABASE_URL') or 'sqlite:///predictions.db')
 
-# Define the structure of the PredictionPrice table
+# Define the database model for storing predictions
 class PredictionPrice(Model):
-    observation_id = CharField(unique=True)  # Unique identifier for each prediction
-    sku = IntegerField()                     # Product identifier
-    date = CharField()                       # Prediction date as a string (YYYY-MM-DD)
-    competitor = CharField()                 # Competitor name
-    observation = TextField()                # Raw input data stored as JSON
-    predicted_price = FloatField()           # Predicted price by the model
-    actual_price = FloatField(null=True)     # Actual price (can be updated later)
-    created_at = CharField(default=lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))  # Timestamp
+    sku = CharField()
+    time_key = IntegerField()
+    competitor = CharField()
+    predicted_price = FloatField()
+    actual_price = FloatField(null=True)
+    created_at = CharField(default=lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     class Meta:
         database = DB
+        indexes = (
+            # Unique constraint on (sku, time_key, competitor)
+            (('sku', 'time_key', 'competitor'), True),
+        )
 
-# Create table if it does not exist
+# Create table if it doesn't already exist
 DB.create_tables([PredictionPrice], safe=True)
-
-# Use Railway's database if available, otherwise fallback to local SQLite
-#DB = connect(os.environ.get('DATABASE_URL') or 'sqlite:///predictions.db')
 
 # ============================
 # Load Required Artifacts
 # ============================
 
-# Dictionaries to hold loaded models and feature data
+# Dictionaries to store models and corresponding features
 loaded_models = {}
 loaded_features_data = {}
 
-# Log the current working directory and ensure models folder exists
-print("cwd:", os.getcwd())
+# Ensure the models directory exists
 assert os.path.exists("models"), "'models' folder not found!"
 
-# Load all models and features from disk
+# Load models and features for all competitors
 def load_all_competitor_data():
-    print("Starting model loading...")
-
+    print("Loading models...")
     competitors = ['competitorA', 'competitorB']
 
     for comp in competitors:
         try:
-            print(f"Loading model for {comp}...")
-            model = joblib.load(f"models/model_{comp}.pkl")  # Load model file
-            features_data = joblib.load(f"models/features_data_{comp}.pkl")  # Load features file
+            model = joblib.load(f"models/model_{comp}.pkl")
+            features_data = joblib.load(f"models/features_data_{comp}.pkl")
             loaded_models[comp] = model
             loaded_features_data[comp] = features_data
-            print(f"Successfully loaded model and data for {comp}")
-
+            print(f"Loaded model and features for {comp}")
         except Exception as e:
-            print(f"Erro ao carregar dados para {comp}: {str(e)}")
+            print(f"Failed to load model for {comp}: {e}")
 
-    print("Closing models loading task.")
-
-# Call the loading function on startup
+# Load on startup
 load_all_competitor_data()
 
-# Print loaded models for verification
-print("Models loaded:", list(loaded_models.keys()))
-
-# Load pre-cleaned datasets
+# Load auxiliary dataframes
 sales_df_clean = pd.read_parquet("sales_df_clean.parquet")
 prices_df_clean = pd.read_parquet("prices_df_clean.parquet")
 campaigns_df_clean = pd.read_parquet("campaigns_df_clean.parquet")
 
-# =================
-# Flask API Initialization
-# =================
+# ============================
+# Initialize Flask App
+# ============================
+
 app = Flask(__name__)
 
-# Root endpoint for service check
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    loaded = list(loaded_models.keys())
-    return jsonify({
-        "message": "Price prediction API is running!",
-        "loaded_models": loaded
-    })
+    return jsonify({"message": "Forecast price API is live."})
 
-# =================
-# Prediction Endpoint
-# =================
-@app.route("/predict", methods=["POST"])
-def predict():
+# ============================
+# Forecast Prices Endpoint
+# ============================
+
+@app.route("/forecast_prices/", methods=["POST"])
+def forecast_prices():
+    try:
+        # Parse incoming JSON
+        data = request.get_json()
+
+        # Validate input
+        sku = data.get("sku")
+        time_key = data.get("time_key")
+
+        if not sku or not isinstance(time_key, int):
+            return jsonify({"error": "Invalid input format. Required: 'sku' (string), 'time_key' (integer)"}), 422
+
+        results = {"sku": sku, "time_key": time_key}
+
+        # Predict price for each competitor
+        for competitor in ['competitorA', 'competitorB']:
+            if competitor not in loaded_models:
+                return jsonify({"error": f"Model for {competitor} not loaded."}), 500
+
+            model = loaded_models[competitor]
+            features_data = loaded_features_data[competitor]
+            features = features_data["features"]
+
+            # Convert time_key to datetime
+            date = pd.to_datetime(str(time_key), format="%Y%m%d")
+
+            # Prepare and predict
+            predicted_price = prepare_features_for_prediction(
+                int(sku), date, competitor,
+                sales_df_clean, prices_df_clean, campaigns_df_clean,
+                features, model
+            )
+
+            # Store prediction in DB
+            try:
+                PredictionPrice.create(
+                    sku=sku,
+                    time_key=time_key,
+                    competitor=competitor,
+                    predicted_price=predicted_price
+                )
+            except IntegrityError:
+                DB.rollback()  # Skip if already exists
+
+            # Add prediction to response
+            results[f"pvp_is_{competitor}"] = float(predicted_price)
+
+        return jsonify(results)
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "message": "An error occurred during prediction."
+        }), 500
+
+# ============================
+# Actual Prices Update Endpoint
+# ============================
+
+@app.route("/actual_prices/", methods=["POST"])
+def actual_prices():
     try:
         data = request.get_json()
-        obs = data.get("data")
-        observation_id = data.get("observation_id")
+        sku = data.get("sku")
+        time_key = data.get("time_key")
+        pvp_a_actual = data.get("pvp_is_competitorA_actual")
+        pvp_b_actual = data.get("pvp_is_competitorB_actual")
 
-        # Auto-generate an observation ID if not provided
-        if not observation_id:
-            timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            import random
-            import string
-            random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=5))
-            observation_id = f"pred_{timestamp}_{random_suffix}"
+        if not sku or not isinstance(time_key, int):
+            return jsonify({"error": "Invalid input format. Required: 'sku' (string), 'time_key' (integer)"}), 422
 
-        if not obs:
-            return jsonify({"error": "Missing 'data' object with input details"}), 400
+        results = {"sku": sku, "time_key": time_key}
 
-        # Check if observation ID already exists
-        existing_prediction = None
-        try:
-            existing_prediction = PredictionPrice.get(PredictionPrice.observation_id == observation_id)
-        except PredictionPrice.DoesNotExist:
-            pass
+        # Update actual prices for both competitors
+        for competitor, actual_price in zip(
+            ['competitorA', 'competitorB'],
+            [pvp_a_actual, pvp_b_actual]
+        ):
+            if actual_price is not None:
+                try:
+                    pred = PredictionPrice.get(
+                        (PredictionPrice.sku == sku) &
+                        (PredictionPrice.time_key == time_key) &
+                        (PredictionPrice.competitor == competitor)
+                    )
+                    pred.actual_price = float(actual_price)
+                    pred.save()
 
-        # If explicitly provided ID exists, return an error
-        if existing_prediction:
-            if data.get("observation_id"):
-                return jsonify({
-                    "observation_id": observation_id,
-                    "error": f"ERROR: Observation ID '{observation_id}' already exists."
-                }), 400
-            else:
-                # Auto-generate a new one if ID exists and wasn't manually set
-                timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-                random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-                observation_id = f"pred_{timestamp}_{random_suffix}"
+                    results[f"pvp_is_{competitor}"] = float(pred.predicted_price)
+                    results[f"pvp_is_{competitor}_actual"] = float(pred.actual_price)
 
-        # Extract input fields
-        sku = int(obs.get("sku"))
-        date_str = obs.get("date")
-        competitor = obs.get("competitor")
+                except PredictionPrice.DoesNotExist:
+                    return jsonify({
+                        "error": f"No prediction found for SKU '{sku}' and time_key '{time_key}' for {competitor}"
+                    }), 422
 
-        # Validate required inputs
-        if not all([sku, date_str, competitor]):
-            return jsonify({
-                "observation_id": observation_id,
-                "error": "'sku', 'date', and 'competitor' are required fields."
-            }), 400
-
-        # Check if the model is available for the requested competitor
-        if competitor not in loaded_models:
-            return jsonify({
-                "observation_id": observation_id,
-                "error": f"Competitor '{competitor}' not found in loaded models."
-            }), 400
-
-        # Retrieve the necessary model and features
-        features_data = loaded_features_data[competitor]
-        columns = features_data["columns"]
-        features = features_data["features"]
-        model = loaded_models[competitor]
-        date = pd.to_datetime(date_str)
-
-        # Run the prediction
-        predicted_price = prepare_features_for_prediction(
-            sku, date, competitor,
-            sales_df_clean, prices_df_clean, campaigns_df_clean,
-            features, model
-        )
-
-        # Save prediction in database
-        try:
-            prediction = PredictionPrice(
-                observation_id=observation_id,
-                sku=sku,
-                date=date.strftime("%Y-%m-%d"),
-                competitor=competitor,
-                observation=json.dumps(obs),
-                predicted_price=float(predicted_price))
-            prediction.save()
-        except IntegrityError:
-            DB.rollback()
-            return jsonify({
-                "observation_id": observation_id,
-                "error": f"ERROR: Observation ID '{observation_id}' already exists"
-            }), 400
-
-        return jsonify({
-            "observation_id": observation_id,
-            "competitor": competitor,
-            "prediction": float(predicted_price)
-        })
+        return jsonify(results)
 
     except Exception as e:
         return jsonify({
             "error": str(e),
-            "message": "An error occurred while processing the prediction."
+            "message": "An error occurred while updating actual prices."
         }), 500
 
-# =========================
-# Endpoint to update actual price
-# =========================
-@app.route("/update_actual/<observation_id>", methods=["POST"])
-def update_actual(observation_id):
+# ============================
+# Records Retrieval Endpoint
+# ============================
+
+@app.route("/records/", methods=["GET"])
+def get_all_records():
     try:
-        data = request.get_json()
-        actual_price = data.get("actual_price")
-
-        if actual_price is None:
-            return jsonify({"error": "Missing 'actual_price' field"}), 400
-
-        # Update the actual price for a given prediction
-        try:
-            prediction = PredictionPrice.get(PredictionPrice.observation_id == observation_id)
-            prediction.actual_price = float(actual_price)
-            prediction.save()
-
-            return jsonify({
-                "observation_id": observation_id,
-                "message": "Actual price successfully updated",
-                "prediction": float(prediction.predicted_price),
-                "actual_price": float(prediction.actual_price)
-            })
-
-        except PredictionPrice.DoesNotExist:
-            return jsonify({
-                "error": f"Prediction with ID '{observation_id}' not found"
-            }), 404
-
+        records = [
+            model_to_dict(p) for p in PredictionPrice.select().order_by(PredictionPrice.created_at.desc())
+        ]
+        return jsonify(records)
     except Exception as e:
         return jsonify({
             "error": str(e),
-            "message": "An error occurred while updating the actual price."
+            "message": "An error occurred while fetching records."
         }), 500
 
-# =========================
-# Endpoint to retrieve all predictions
-# =========================
-@app.route("/predictions", methods=["GET"])
-def get_predictions():
-    try:
-        predictions = [model_to_dict(p) for p in PredictionPrice.select()]
-        return jsonify(predictions)
+# ============================
+# Run the Server
+# ============================
 
-    except Exception as e:
-        return jsonify({
-            "error": str(e),
-            "message": "An error occurred while retrieving predictions."
-        }), 500
-
-# =========================
-# Start the API Server
-# =========================
 if __name__ == "__main__":
-    port = os.environ.get('PORT')
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
