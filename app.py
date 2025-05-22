@@ -97,8 +97,8 @@ def forecast_prices():
         sku = data.get("sku")
         time_key = data.get("time_key")
 
-        # Validate input
-        if not sku or not isinstance(time_key, int):
+        # Validate input format
+        if not isinstance(sku, str) or not isinstance(time_key, int):
             return jsonify({
                 "error": "Invalid input format. Required fields: 'sku' (string), 'time_key' (integer YYYYMMDD)"
             }), 422
@@ -171,13 +171,13 @@ def actual_prices():
         pvp_a_actual = data.get("pvp_is_competitorA_actual")
         pvp_b_actual = data.get("pvp_is_competitorB_actual")
 
-        # Validate input
-        if not sku or not isinstance(time_key, int):
+        # Validate input format
+        if not isinstance(sku, str) or not isinstance(time_key, int):
             return jsonify({
                 "error": "Invalid input format. Required fields: 'sku' (string), 'time_key' (integer YYYYMMDD)"
             }), 422
 
-        # Retrieve existing prediction record
+        # Check existence in DB
         record = PredictionPrice.get_or_none(
             (PredictionPrice.sku == sku) &
             (PredictionPrice.time_key == time_key)
@@ -185,18 +185,16 @@ def actual_prices():
 
         if record is None:
             return jsonify({
-                "error": f"No prediction record found for sku '{sku}' and time_key '{time_key}'."
-            }), 404
+                "error": f"Invalid input: No record found for sku '{sku}' and time_key '{time_key}'."
+            }), 422
 
-        # Update actual prices if provided
+        # Update actuals if provided
         if pvp_a_actual is not None:
             record.pvp_is_competitorA_actual = float(pvp_a_actual)
         if pvp_b_actual is not None:
             record.pvp_is_competitorB_actual = float(pvp_b_actual)
 
         record.save()
-
-        # Return updated record as JSON
         return jsonify(model_to_dict(record))
 
     except Exception as e:
