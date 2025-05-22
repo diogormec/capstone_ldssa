@@ -1,32 +1,51 @@
+Claro! Aqui está a versão atualizada do `README.md` para refletir com precisão a funcionalidade atual da tua aplicação `app.py`:
+
+---
+
 # 📊 Competitor Price Forecasting API - Retailz Project
 
 ## 🚀 Overview
 
-This project provides a REST API for predicting competitor prices (Competitor A and B) to help Retailz optimize their pricing strategies. The API supports:
+This project provides a RESTful API that enables:
 
-- 🔮 Price predictions for future dates
-- 📝 Logging of actual prices for model improvement
-- 📊 Retrieval of historical predictions
+* 🔮 Forecasting prices for two competitors (`competitorA` and `competitorB`) based on a given SKU and date.
+* 📝 Logging and updating actual competitor prices after the forecast date.
+* 📂 Retrieving all prediction records from the database.
+
+The API is designed to support pricing intelligence and strategy for Retailz by enabling fast access to model forecasts and post-hoc performance tracking.
 
 ## 🔧 Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/yourusername/retailz-price-forecasting.git
    cd retailz-price-forecasting
    ```
 
 2. **Set up a virtual environment**
+
    ```bash
    python -m venv .venv
    .\.venv\Scripts\activate  # On Windows
-   source .venv/bin/activate # On Mac/Linux
+   source .venv/bin/activate # On macOS/Linux
    ```
 
 3. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
+
+4. **Ensure the following files and folders are available:**
+
+   * `models/model_competitorA.pkl`
+   * `models/model_competitorB.pkl`
+   * `models/features_data_competitorA.pkl`
+   * `models/features_data_competitorB.pkl`
+   * `sales_df_clean.parquet`
+   * `prices_df_clean.parquet`
+   * `campaigns_df_clean.parquet`
 
 ## 🏃‍♂️ Running the API
 
@@ -34,51 +53,87 @@ This project provides a REST API for predicting competitor prices (Competitor A 
 python app.py
 ```
 
-The API will be available at `http://localhost:5000`
+The API will be available at:
+📍 `http://localhost:5000`
 
 ## 📚 API Endpoints
 
-### 🔮 Make a Prediction
-**POST** `/predict`
+### 🔮 Forecast Prices
 
-```powershell
-# Example 1: Automatic observation ID
-Invoke-RestMethod -Uri "http://localhost:5000/predict" -Method Post -Body '{"data": {"sku": "4443", "date": "2025-05-20", "competitor": "competitorA"}}' -ContentType "application/json"
+**POST** `/forecast_prices/`
 
-# Example 2: Custom observation ID
-Invoke-RestMethod -Uri "http://localhost:5000/predict" -Method Post -Body '{"observation_id": "my_custom_id", "data": {"sku": "4443", "date": "2025-05-20", "competitor": "competitorA"}}' -ContentType "application/json"
+Forecast competitor prices for a given `sku` and `time_key` (in `YYYYMMDD` format).
+
+**Request Body (JSON):**
+
+```json
+{
+  "sku": "4443",
+  "time_key": 20250520
+}
 ```
 
-### 🔄 Update Actual Price
-**POST** `/update_actual/<observation_id>`
+**Response Example:**
 
-```powershell
-Invoke-RestMethod -Uri "http://localhost:5000/update_actual/my_custom_id" -Method Post -Body '{"actual_price": 125.50}' -ContentType "application/json"
+```json
+{
+  "sku": "4443",
+  "time_key": 20250520,
+  "pvp_is_competitorA": 124.87,
+  "pvp_is_competitorB": 129.45
+}
 ```
-
-### 📜 Get All Predictions
-**GET** `/predictions`
-
-```powershell
-Invoke-RestMethod -Uri "http://localhost:5000/predictions" -Method Get
-```
-
-
-## 📊 Key Insights from Analysis
-
-################################
-
-## 🤖 Model Details
-
-- **Algorithm**: Gradient Boosting (LightGBM/XGBoost)
-- **Features**:
-  - Historical prices and discounts
-  - ~~Competitor price lags~~
-  - Calendar features (day-of-week, month)
-  - Promotional indicators
-- **Evaluation**: Category-weighted MAE with <10% variance constraint
-
 
 ---
 
-Developed by Diogo Ramalho for Retailz as part of the Lisbon Data Science Academy program
+### 📝 Update Actual Prices
+
+**POST** `/actual_prices/`
+
+Update actual observed competitor prices for a specific `sku` and `time_key`.
+
+**Request Body (JSON):**
+
+```json
+{
+  "sku": "4443",
+  "time_key": 20250520,
+  "pvp_is_competitorA_actual": 126.00,
+  "pvp_is_competitorB_actual": 131.50
+}
+```
+
+**Response:** JSON object with the updated record.
+
+---
+
+### 📂 Retrieve All Prediction Records
+
+**GET** `/records/`
+
+Returns all prediction records in descending order by `time_key`.
+
+---
+
+## 🧠 Model Details
+
+* **Models**: One LightGBM model per competitor.
+* **Inputs**:
+
+  * Cleaned sales, pricing, and promotional data.
+  * Engineered features like calendar variables, recent sales patterns, and promotion flags.
+* **Output**: Forecasted price for a given `sku` and date.
+* **Storage**: All forecasts and updates are persisted in a PostgreSQL or SQLite database.
+
+## ✅ Example Use Cases
+
+* Predict competitor prices for a specific date and product.
+* Compare model forecast with actual prices after the date.
+* Track prediction performance over time.
+
+---
+
+Developed by **Diogo Ramalho** for **Retailz**
+as part of the **Lisbon Data Science Academy (LDSA) Capstone Project**
+
+---
