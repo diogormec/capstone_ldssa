@@ -21,7 +21,10 @@ import datetime
 # ============================
 
 # Use SQLite for local development
-DB = SqliteDatabase('predictions.db')
+#DB = SqliteDatabase('predictions.db')
+
+# Use Railway's database if available, otherwise fallback to local SQLite
+DB = connect(os.environ.get('DATABASE_URL') or 'sqlite:///predictions.db')
 
 # Define the structure of the PredictionPrice table
 class PredictionPrice(Model):
@@ -41,7 +44,7 @@ class PredictionPrice(Model):
 DB.create_tables([PredictionPrice], safe=True)
 
 # Use Railway's database if available, otherwise fallback to local SQLite
-DB = connect(os.environ.get('DATABASE_URL') or 'sqlite:///predictions.db')
+#DB = connect(os.environ.get('DATABASE_URL') or 'sqlite:///predictions.db')
 
 # ============================
 # Load Required Artifacts
