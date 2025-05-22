@@ -5,7 +5,7 @@ import joblib
 import pickle
 import pandas as pd
 from flask import Flask, request, jsonify
-from prepare_features import preparar_features_para_predicao  # Custom feature preparation function
+from prepare_features import prepare_features_for_prediction  # Custom feature preparation function
 
 # Database dependencies
 from peewee import (
@@ -168,7 +168,7 @@ def predict():
         date = pd.to_datetime(date_str)
 
         # Run the prediction
-        predicted_price = preparar_features_para_predicao(
+        predicted_price = prepare_features_for_prediction(
             sku, date, competitor,
             sales_df_clean, prices_df_clean, campaigns_df_clean,
             features, model
