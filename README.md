@@ -1,7 +1,3 @@
-Claro! Aqui está a versão atualizada do `README.md` para refletir com precisão a funcionalidade atual da tua aplicação `app.py`:
-
----
-
 # 📊 Competitor Price Forecasting API - Retailz Project
 
 ## 🚀 Overview
