@@ -12,3 +12,4 @@ black
 python-dotenv
 ipython
 lightgbm
+psycopg2
