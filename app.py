@@ -5,7 +5,7 @@ import joblib
 import pickle
 import pandas as pd
 from flask import Flask, request, jsonify
-from prepare_features import preparar_features_para_predicao
+from prepare_features import preparar_features_para_predicao  # Custom feature preparation function
 
 # Database dependencies
 from peewee import (
@@ -19,35 +19,43 @@ import datetime
 # ============================
 # Database Configuration
 # ============================
+
+# Use SQLite for local development
 DB = SqliteDatabase('predictions.db')
 
+# Define the structure of the PredictionPrice table
 class PredictionPrice(Model):
-    observation_id = CharField(unique=True)
-    sku = IntegerField()
-    date = CharField()
-    competitor = CharField()
-    observation = TextField()
-    predicted_price = FloatField()
-    actual_price = FloatField(null=True)
-    created_at = CharField(default=lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    observation_id = CharField(unique=True)  # Unique identifier for each prediction
+    sku = IntegerField()                     # Product identifier
+    date = CharField()                       # Prediction date as a string (YYYY-MM-DD)
+    competitor = CharField()                 # Competitor name
+    observation = TextField()                # Raw input data stored as JSON
+    predicted_price = FloatField()           # Predicted price by the model
+    actual_price = FloatField(null=True)     # Actual price (can be updated later)
+    created_at = CharField(default=lambda: datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))  # Timestamp
 
     class Meta:
         database = DB
 
+# Create table if it does not exist
 DB.create_tables([PredictionPrice], safe=True)
+
+# Use Railway's database if available, otherwise fallback to local SQLite
 DB = connect(os.environ.get('DATABASE_URL') or 'sqlite:///predictions.db')
 
 # ============================
 # Load Required Artifacts
 # ============================
 
+# Dictionaries to hold loaded models and feature data
 loaded_models = {}
 loaded_features_data = {}
 
-# Log local directory and ensure 'models' folder exists
+# Log the current working directory and ensure models folder exists
 print("cwd:", os.getcwd())
 assert os.path.exists("models"), "'models' folder not found!"
 
+# Load all models and features from disk
 def load_all_competitor_data():
     print("Starting model loading...")
 
@@ -56,8 +64,8 @@ def load_all_competitor_data():
     for comp in competitors:
         try:
             print(f"Loading model for {comp}...")
-            model = joblib.load(f"models/model_{comp}.pkl")
-            features_data = joblib.load(f"models/features_data_{comp}.pkl")
+            model = joblib.load(f"models/model_{comp}.pkl")  # Load model file
+            features_data = joblib.load(f"models/features_data_{comp}.pkl")  # Load features file
             loaded_models[comp] = model
             loaded_features_data[comp] = features_data
             print(f"Successfully loaded model and data for {comp}")
@@ -67,13 +75,13 @@ def load_all_competitor_data():
 
     print("Closing models loading task.")
 
-# Chamada da função de carregamento
+# Call the loading function on startup
 load_all_competitor_data()
 
-# Confirmar modelos carregados
+# Print loaded models for verification
 print("Models loaded:", list(loaded_models.keys()))
 
-# Load cleaned datasets
+# Load pre-cleaned datasets
 sales_df_clean = pd.read_parquet("sales_df_clean.parquet")
 prices_df_clean = pd.read_parquet("prices_df_clean.parquet")
 campaigns_df_clean = pd.read_parquet("campaigns_df_clean.parquet")
@@ -83,6 +91,7 @@ campaigns_df_clean = pd.read_parquet("campaigns_df_clean.parquet")
 # =================
 app = Flask(__name__)
 
+# Root endpoint for service check
 @app.route("/")
 def home():
     loaded = list(loaded_models.keys())
@@ -101,6 +110,7 @@ def predict():
         obs = data.get("data")
         observation_id = data.get("observation_id")
 
+        # Auto-generate an observation ID if not provided
         if not observation_id:
             timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
             import random
@@ -111,12 +121,14 @@ def predict():
         if not obs:
             return jsonify({"error": "Missing 'data' object with input details"}), 400
 
+        # Check if observation ID already exists
         existing_prediction = None
         try:
             existing_prediction = PredictionPrice.get(PredictionPrice.observation_id == observation_id)
         except PredictionPrice.DoesNotExist:
             pass
 
+        # If explicitly provided ID exists, return an error
         if existing_prediction:
             if data.get("observation_id"):
                 return jsonify({
@@ -124,38 +136,45 @@ def predict():
                     "error": f"ERROR: Observation ID '{observation_id}' already exists."
                 }), 400
             else:
+                # Auto-generate a new one if ID exists and wasn't manually set
                 timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                 random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
                 observation_id = f"pred_{timestamp}_{random_suffix}"
 
+        # Extract input fields
         sku = int(obs.get("sku"))
         date_str = obs.get("date")
         competitor = obs.get("competitor")
 
+        # Validate required inputs
         if not all([sku, date_str, competitor]):
             return jsonify({
                 "observation_id": observation_id,
                 "error": "'sku', 'date', and 'competitor' are required fields."
             }), 400
 
+        # Check if the model is available for the requested competitor
         if competitor not in loaded_models:
             return jsonify({
                 "observation_id": observation_id,
                 "error": f"Competitor '{competitor}' not found in loaded models."
             }), 400
 
+        # Retrieve the necessary model and features
         features_data = loaded_features_data[competitor]
         columns = features_data["columns"]
         features = features_data["features"]
         model = loaded_models[competitor]
         date = pd.to_datetime(date_str)
 
+        # Run the prediction
         predicted_price = preparar_features_para_predicao(
             sku, date, competitor,
             sales_df_clean, prices_df_clean, campaigns_df_clean,
             features, model
         )
 
+        # Save prediction in database
         try:
             prediction = PredictionPrice(
                 observation_id=observation_id,
@@ -184,6 +203,9 @@ def predict():
             "message": "An error occurred while processing the prediction."
         }), 500
 
+# =========================
+# Endpoint to update actual price
+# =========================
 @app.route("/update_actual/<observation_id>", methods=["POST"])
 def update_actual(observation_id):
     try:
@@ -193,6 +215,7 @@ def update_actual(observation_id):
         if actual_price is None:
             return jsonify({"error": "Missing 'actual_price' field"}), 400
 
+        # Update the actual price for a given prediction
         try:
             prediction = PredictionPrice.get(PredictionPrice.observation_id == observation_id)
             prediction.actual_price = float(actual_price)
@@ -216,6 +239,9 @@ def update_actual(observation_id):
             "message": "An error occurred while updating the actual price."
         }), 500
 
+# =========================
+# Endpoint to retrieve all predictions
+# =========================
 @app.route("/predictions", methods=["GET"])
 def get_predictions():
     try:
